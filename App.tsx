@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import AgentStudio from './components/AgentStudio';
 import DocIntelligence from './components/DocIntelligence';
+import NoteKeeper from './components/NoteKeeper';
 
 const App: React.FC = () => {
   // State
@@ -14,6 +15,7 @@ const App: React.FC = () => {
     painterStyle: 'Default',
   });
   const [activeView, setActiveView] = useState('dashboard');
+  const [customApiKey, setCustomApiKey] = useState('');
 
   // Effects for styling
   useEffect(() => {
@@ -47,9 +49,11 @@ const App: React.FC = () => {
       case 'dashboard':
         return <Dashboard labels={currentLabels} isDark={settings.theme === 'dark'} />;
       case 'agent':
-        return <AgentStudio labels={currentLabels} />;
+        return <AgentStudio labels={currentLabels} apiKey={customApiKey} />;
       case 'doc':
-        return <DocIntelligence labels={currentLabels} />;
+        return <DocIntelligence labels={currentLabels} apiKey={customApiKey} />;
+      case 'note':
+        return <NoteKeeper labels={currentLabels} apiKey={customApiKey} />;
       default:
         return <Dashboard labels={currentLabels} isDark={settings.theme === 'dark'} />;
     }
@@ -60,13 +64,15 @@ const App: React.FC = () => {
     <div className={`flex h-screen w-screen overflow-hidden bg-background text-foreground transition-colors duration-500 ${currentPainter.fontClass}`}>
       
       {/* Sidebar - Desktop */}
-      <aside className="hidden md:block w-64 h-full z-20">
+      <aside className="hidden md:block h-full z-20">
         <Sidebar 
           settings={settings} 
           onSettingsChange={setSettings} 
           labels={currentLabels} 
           activeView={activeView}
           onNavigate={setActiveView}
+          apiKey={customApiKey}
+          onApiKeyChange={setCustomApiKey}
         />
       </aside>
 
@@ -85,11 +91,11 @@ const App: React.FC = () => {
         
         {/* Mobile Nav Overlay (Simplified) */}
         <div className="md:hidden">
-            {/* Ideally would use a drawer component here. For simplicity, sticking to desktop-first with responsive grid layout in content */}
-            <div className="p-2 flex justify-around bg-muted/50 text-xs">
-                <button onClick={() => setActiveView('dashboard')} className={activeView === 'dashboard' ? 'text-primary font-bold' : ''}>Dashboard</button>
+            <div className="p-2 flex justify-around bg-muted/50 text-xs overflow-x-auto">
+                <button onClick={() => setActiveView('dashboard')} className={activeView === 'dashboard' ? 'text-primary font-bold' : ''}>Dash</button>
                 <button onClick={() => setActiveView('agent')} className={activeView === 'agent' ? 'text-primary font-bold' : ''}>Agent</button>
                 <button onClick={() => setActiveView('doc')} className={activeView === 'doc' ? 'text-primary font-bold' : ''}>Doc</button>
+                <button onClick={() => setActiveView('note')} className={activeView === 'note' ? 'text-primary font-bold' : ''}>Note</button>
             </div>
         </div>
 

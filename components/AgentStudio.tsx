@@ -4,13 +4,16 @@ import { DEFAULT_AGENTS_YAML } from '../constants';
 import { generateContent, repairInvalidYaml } from '../services/geminiService';
 import { Button, Textarea, Select, Card, Tabs, TabsList, TabsTrigger, TabsContent } from './ui/Components';
 import jsYaml from 'js-yaml';
-import { Play, PenTool, Download, Upload, Wand2, Copy, Check } from 'lucide-react';
+import { Play, PenTool, Download, Upload, Wand2, Copy, Check, FileText } from 'lucide-react';
 
 interface AgentStudioProps {
   labels: Record<string, string>;
+  apiKey: string;
 }
 
-const AgentStudio: React.FC<AgentStudioProps> = ({ labels }) => {
+const DEFAULT_SKILL_MD = "# Global Agent Skills\n\n- Always be polite.\n- Use emojis where appropriate.\n- Reference the provided context.";
+
+const AgentStudio: React.FC<AgentStudioProps> = ({ labels, apiKey }) => {
   const [activeTab, setActiveTab] = useState('run');
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
@@ -18,6 +21,7 @@ const AgentStudio: React.FC<AgentStudioProps> = ({ labels }) => {
   const [output, setOutput] = useState('');
   const [loading, setLoading] = useState(false);
   const [yamlContent, setYamlContent] = useState(DEFAULT_AGENTS_YAML);
+  const [skillMd, setSkillMd] = useState(DEFAULT_SKILL_MD);
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -31,6 +35,8 @@ const AgentStudio: React.FC<AgentStudioProps> = ({ labels }) => {
           setSelectedAgentId(parsed[0].id);
         }
         setYamlError(null);
+      } else {
+         setYamlError('YAML must be an array of Agents');
       }
     } catch (e) {
       setYamlError('Invalid YAML');
@@ -46,33 +52,60 @@ const AgentStudio: React.FC<AgentStudioProps> = ({ labels }) => {
     setLoading(true);
     setOutput('');
     
+    const enhancedSystemPrompt = `${agent.systemPrompt}\n\nGlobal Skills/Context:\n${skillMd}`;
+
     try {
       const result = await generateContent(
         agent.model,
         prompt,
-        agent.systemPrompt
+        enhancedSystemPrompt,
+        undefined,
+        apiKey
       );
       setOutput(result);
     } catch (error) {
       console.error(error);
-      setOutput('Error generating content. Please check console.');
+      setOutput('Error generating content. Please check console and API Key.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRepair = async () => {
-    setLoading(true);
-    try {
-      const fixed = await repairInvalidYaml(yamlContent);
-      setYamlContent(fixed);
-    } catch (error) {
-      console.error(error);
-      setYamlError('Failed to repair YAML');
-    } finally {
-      setLoading(false);
-    }
+  const handleUploadYaml = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+          const content = ev.target?.result as string;
+          try {
+             const parsed = jsYaml.load(content);
+             if (Array.isArray(parsed)) {
+                 setYamlContent(content);
+             } else {
+                 // Not standard, try to fix
+                 setLoading(true);
+                 const fixed = await repairInvalidYaml(content, apiKey, true); // standardize=true
+                 setYamlContent(fixed);
+                 setLoading(false);
+             }
+          } catch (err) {
+               setLoading(true);
+               const fixed = await repairInvalidYaml(content, apiKey, true);
+               setYamlContent(fixed);
+               setLoading(false);
+          }
+      };
+      reader.readAsText(file);
   };
+
+    const handleUploadSkill = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => setSkillMd(ev.target?.result as string);
+      reader.readAsText(file);
+  };
+
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(output);
@@ -89,9 +122,10 @@ const AgentStudio: React.FC<AgentStudioProps> = ({ labels }) => {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-        <TabsList className="grid w-full grid-cols-2 mb-4">
+        <TabsList className="grid w-full grid-cols-3 mb-4">
           <TabsTrigger value="run" activeValue={activeTab} onClick={() => setActiveTab('run')}><Play className="w-4 h-4 mr-2" /> {labels.run}</TabsTrigger>
-          <TabsTrigger value="manage" activeValue={activeTab} onClick={() => setActiveTab('manage')}><PenTool className="w-4 h-4 mr-2" /> {labels.manage}</TabsTrigger>
+          <TabsTrigger value="manage" activeValue={activeTab} onClick={() => setActiveTab('manage')}><PenTool className="w-4 h-4 mr-2" /> Agents.yaml</TabsTrigger>
+          <TabsTrigger value="skill" activeValue={activeTab} onClick={() => setActiveTab('skill')}><FileText className="w-4 h-4 mr-2" /> {labels.skillMd}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="run" activeValue={activeTab}>
@@ -115,9 +149,7 @@ const AgentStudio: React.FC<AgentStudioProps> = ({ labels }) => {
                 <div className="p-4 bg-muted/50 rounded-lg text-sm space-y-2 border border-border">
                   <p className="font-semibold text-primary">{activeAgent.name}</p>
                   <p className="text-muted-foreground">{activeAgent.description}</p>
-                  <div className="text-xs font-mono bg-background p-2 rounded mt-2 text-muted-foreground truncate">
-                    Model: {activeAgent.model}
-                  </div>
+                   {/* Allow user to override prompt per run? No, just model selection maybe */}
                 </div>
               )}
 
@@ -164,12 +196,13 @@ const AgentStudio: React.FC<AgentStudioProps> = ({ labels }) => {
         <TabsContent value="manage" activeValue={activeTab}>
           <Card className="p-6 h-full flex flex-col space-y-4 bg-card/80 backdrop-blur-md">
             <div className="flex justify-between items-center">
-              <h3 className="font-semibold">Agent Configuration (YAML)</h3>
-              <div className="space-x-2 flex">
-                <Button variant="outline" size="sm" onClick={handleRepair} disabled={loading}>
-                  <Wand2 className="mr-2 h-4 w-4" /> {labels.repair}
-                </Button>
-                {/* Simplified Download logic */}
+              <h3 className="font-semibold">agents.yaml</h3>
+              <div className="space-x-2 flex items-center">
+                <label className="cursor-pointer inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2">
+                    <Upload className="mr-2 h-4 w-4" /> {labels.upload}
+                    <input type="file" className="hidden" accept=".yaml,.yml" onChange={handleUploadYaml} />
+                </label>
+                
                 <Button variant="outline" size="sm" onClick={() => {
                   const blob = new Blob([yamlContent], { type: 'text/yaml' });
                   const url = URL.createObjectURL(blob);
@@ -192,6 +225,35 @@ const AgentStudio: React.FC<AgentStudioProps> = ({ labels }) => {
               spellCheck={false}
             />
           </Card>
+        </TabsContent>
+
+        <TabsContent value="skill" activeValue={activeTab}>
+             <Card className="p-6 h-full flex flex-col space-y-4 bg-card/80 backdrop-blur-md">
+                 <div className="flex justify-between items-center">
+                    <h3 className="font-semibold">SKILL.md (Global Context)</h3>
+                     <div className="space-x-2 flex items-center">
+                        <label className="cursor-pointer inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2">
+                            <Upload className="mr-2 h-4 w-4" /> {labels.upload}
+                            <input type="file" className="hidden" accept=".md,.txt" onChange={handleUploadSkill} />
+                        </label>
+                         <Button variant="outline" size="sm" onClick={() => {
+                            const blob = new Blob([skillMd], { type: 'text/markdown' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = 'SKILL.md';
+                            a.click();
+                            }}>
+                            <Download className="mr-2 h-4 w-4" /> {labels.download}
+                        </Button>
+                     </div>
+                 </div>
+                 <Textarea 
+                    className="flex-1 font-mono text-sm p-4 leading-relaxed" 
+                    value={skillMd}
+                    onChange={(e) => setSkillMd(e.target.value)}
+                />
+             </Card>
         </TabsContent>
       </Tabs>
     </div>
